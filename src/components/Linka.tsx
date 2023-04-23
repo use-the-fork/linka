@@ -1,272 +1,161 @@
-import { LoadingButton } from '@mui/lab';
+import AddCircleSharpIcon from '@mui/icons-material/AddCircleSharp';
+import KeyboardArrowLeftSharpIcon from '@mui/icons-material/KeyboardArrowLeftSharp';
 import {
+  Alert,
+  AlertTitle,
+  AppBar,
+  Avatar,
   Box,
-  Chip,
-  Unstable_Grid2 as Grid,
-  InputAdornment,
-  List,
+  Container,
+  CssBaseline,
+  Drawer,
+  IconButton,
+  Snackbar,
   Stack,
-  TextField,
-  Tooltip,
-  Typography,
+  ThemeProvider,
+  Toolbar,
+  createTheme,
 } from '@mui/material';
-import { Index, IndexSearchResult } from 'flexsearch';
-import React, {
-  ChangeEvent,
-  KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
-import { getBookmarks } from '../api';
-import { ToastContext } from '../contexts/ToastContext';
-import { BookmarkItem, Props, Res } from '../types';
+import React, { ReactNode } from 'react';
+import { ColorModeContext } from '../contexts/ColorModeContext';
+import { DrawerContext, IDrawer } from '../contexts/DrawerContext';
+import { IToast, ToastContext } from '../contexts/ToastContext';
+import LinkaLogo from '../images/logo192.png';
+import { getAuth } from '../utils/getAuth';
+import { AddBookmark } from './AddBookmark';
 import { ColorModeSwitcher } from './ColorModeSwitcher';
-import { LinkaItem } from './LinkaItem';
+import { Credits } from './Credits';
 
-function Linka(props: Props) {
-  const inputRef = useRef(null);
+export const Linka: React.FC<{
+  version: string;
+  children: ReactNode;
+}> = (props) => {
+  const [toast, setToast] = React.useState<IToast>({
+    open: false,
+    title: '',
+    description: '',
+  });
 
-  const defaultBookmarks: BookmarkItem[] = [];
-  const [ready, setReady] = useState(false);
-  const [bookmarks, setBookmarks] = useState(defaultBookmarks);
-  const [index, setIndex] = useState(new Index({ tokenize: 'full' }));
-  const [query, setQuery] = useState('');
+  const [drawer, setDrawer] = React.useState<IDrawer>({
+    open: false,
+    children: <></>,
+  });
 
-  const defaultSearchResults: IndexSearchResult = [];
-  const [results, setResults] = useState(defaultSearchResults);
-
-  const { doToast } = React.useContext(ToastContext);
-
-  const [token, setToken] = useState('');
-  const [baseURL, setBaseURL] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const getTheBookmarks = async () => {
-    const token = localStorage.getItem('token');
-    const url = localStorage.getItem('url');
-    setReady(false);
-    if (token != null && url != null) {
-      getBookmarks({ token, url })
-        .then((res: Res) => {
-          setBookmarks(res.results);
-          res.results.forEach((v, idx) => {
-            setIndex(
-              index.add(
-                idx,
-                [v.title, v.description, v.url, v.tag_names.join(' ')].join(' ')
-              )
-            );
-          });
-
-          setReady(true);
-        })
-        .catch((reason) => {
-          console.log('reason: ', reason);
-          setReady(false);
-        });
-    }
+  const handleDrawerClose = () => {
+    setDrawer({ open: false, children: <></> });
   };
 
-  useEffect(() => {
-    // handle hotkeys
-    const pressed = new Map<string, boolean>();
-    window.addEventListener('keydown', (e) => {
-      pressed.set(e.key, true);
-      if (!(pressed.has('Meta') || pressed.has('Control'))) {
-        return;
-      }
-      // focus input
-      if (e.key === 'l') {
-        e.preventDefault();
-        if (inputRef.current === null) {
-          return;
-        }
-        (inputRef.current as HTMLInputElement).focus();
-        return;
-      }
+  const doToast = (toastMessage: IToast) => {
+    setToast({ open: true, timeout: 6000, ...toastMessage });
+  };
+
+  const handleClose = () => {
+    setToast({ open: false, title: '' });
+  };
+
+  const doDrawer = (drawerMessage: IDrawer) => {
+    setDrawer({ open: false, ...drawerMessage });
+  };
+
+  const handleAddBookmark = () => {
+    setDrawer({
+      open: true,
+      children: <AddBookmark onItemUpdate={handleDrawerClose} />,
     });
-    window.addEventListener('keyup', (e) => {
-      pressed.delete(e.key);
+  };
+
+  const getInitialMode = () => {
+    const savedMode = localStorage.getItem('theme');
+    return savedMode !== null && savedMode === 'dark' ? 'dark' : 'light';
+  };
+
+  const [mode, setMode] = React.useState<'light' | 'dark'>(getInitialMode);
+
+  const toggleColorMode = React.useCallback(() => {
+    setMode((prevMode) => {
+      const newMode = prevMode === 'light' ? 'dark' : 'light';
+      localStorage.setItem('theme', newMode);
+      return newMode;
     });
+  }, []);
 
-    getTheBookmarks();
-  }, [index, baseURL, token]);
+  const colorMode = React.useMemo(
+    () => ({ toggleColorMode }),
+    [toggleColorMode]
+  );
 
-  const onQueryUpdate = (e: ChangeEvent<HTMLInputElement>) => {
-    setQuery(e.target.value);
-
-    let positive: IndexSearchResult[] = [];
-    let negative: IndexSearchResult[] = [];
-    const segs = e.target.value.split(' ').filter((v) => v.length > 0);
-    if (segs.length === 0) {
-      setResults([]);
-      return;
-    }
-
-    segs.forEach((q) => {
-      if (q.startsWith('!')) {
-        negative.push(index.search(q.replace('!', '')));
-      } else {
-        positive.push(index.search(q));
-      }
-    });
-    let posResult = positive.reduce((prev, cur) => {
-      return prev.filter((v) => cur.includes(v));
-    });
-    if (negative.length > 0) {
-      let negaResult = negative.reduce((prev, cur) => [...prev, ...cur]);
-      setResults(posResult.filter((v) => !negaResult.includes(v)));
-    } else {
-      setResults(posResult);
-    }
-  };
-
-  const onItemUpdate = () => {
-    getTheBookmarks();
-  };
-
-  const handleSetToken = () => {
-    setSubmitting(true);
-    getBookmarks({ token, url: baseURL })
-      .then((res: Res) => {
-        setBookmarks(res.results);
-        res.results.forEach((v, idx) => {
-          setIndex(
-            index.add(
-              idx,
-              [v.title, v.description, v.url, v.tag_names.join(' ')].join(' ')
-            )
-          );
-        });
-
-        localStorage.setItem('token', token);
-        localStorage.setItem('url', baseURL);
-        setReady(true);
-        setSubmitting(false);
-      })
-      .catch((reason) => {
-        console.log(reason);
-        doToast({
-          open: true,
-          type: 'error',
-          title: 'Failed to load bookmarks.',
-          description: 'detail: ' + reason,
-        });
-        setReady(false);
-        setSubmitting(false);
-      });
-  };
-
-  const onEnterPressed = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      results.forEach((v) => {
-        window.open(bookmarks[Number(v.toString())].url);
-      });
-    }
-  };
+  const theme = React.useMemo(
+    () =>
+      createTheme({
+        palette: {
+          mode,
+        },
+      }),
+    [mode]
+  );
 
   return (
-    <>
-      {ready ? (
-        // search main page
-        <Box sx={{ flexGrow: 1 }}>
-          <Grid container spacing={2}>
-            <Grid xs={12}>
-              <TextField
-                label="any text in url, title, description or tags"
-                variant="outlined"
-                value={query}
-                onChange={onQueryUpdate}
-                onKeyDown={onEnterPressed}
-                inputRef={inputRef}
-                fullWidth
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <Tooltip
-                        arrow
-                        title="type `Enter` to open hits in new tabs. keywords with `!` prefix to exclude"
-                      >
-                        <Chip
-                          label={
-                            results.length > 0
-                              ? `${results.length} hits`
-                              : `${bookmarks.length} total`
-                          }
-                        />
-                      </Tooltip>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-            <Grid xs={12}>
-              <List sx={{ width: '100%' }}>
-                {results.length > 0
-                  ? results.map((val) => (
-                      <LinkaItem
-                        item={bookmarks[Number(val.toString())]}
-                        key={bookmarks[Number(val.toString())].url}
-                        onItemUpdate={onItemUpdate}
-                      />
-                    ))
-                  : bookmarks.map((val) => (
-                      <LinkaItem
-                        item={val}
-                        key={val.url}
-                        onItemUpdate={onItemUpdate}
-                      />
-                    ))}
-              </List>
-            </Grid>
-          </Grid>
-        </Box>
-      ) : (
-        // setup setting page
-        <Stack mt={5} spacing={2}>
-          <Typography variant="h2" pl={1}>
-            Linka!
-          </Typography>
-          <TextField
-            label="linkding site base url"
-            value={baseURL}
-            variant="outlined"
-            fullWidth
-            onChange={(e) => {
-              setBaseURL(e.target.value);
-            }}
-            autoFocus
-          />
-          <TextField
-            label="Token"
-            value={token}
-            variant="outlined"
-            fullWidth
-            onChange={(e) => {
-              setToken(e.target.value);
-            }}
-            autoFocus
-          />
-          <LoadingButton
-            loading={submitting}
-            variant="contained"
-            onClick={handleSetToken}
-          >
-            Go!
-          </LoadingButton>
-        </Stack>
-      )}
-      <Stack
-        mb={2}
-        direction="column"
-        justifyContent="center"
-        alignItems="center"
-      >
-        <ColorModeSwitcher />
-      </Stack>
-    </>
+    <ToastContext.Provider value={{ doToast }}>
+      <ColorModeContext.Provider value={colorMode}>
+        <DrawerContext.Provider value={{ doDrawer }}>
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <AppBar
+              position="fixed"
+              sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
+            >
+              <Toolbar>
+                {!drawer.open ? (
+                  <Avatar src={LinkaLogo} alt="linka!" />
+                ) : (
+                  <IconButton edge="end" onClick={handleDrawerClose}>
+                    <KeyboardArrowLeftSharpIcon />
+                  </IconButton>
+                )}
+                <Box sx={{ flexGrow: 1 }}></Box>
+                {getAuth() && (
+                  <IconButton edge="end" onClick={handleAddBookmark}>
+                    <AddCircleSharpIcon />
+                  </IconButton>
+                )}
+              </Toolbar>
+            </AppBar>
+            <Drawer anchor={'right'} open={drawer.open}>
+              <Box sx={{ width: '100vw' }} mt={'75px'} role="presentation">
+                <Container fixed>{drawer.children}</Container>
+              </Box>
+            </Drawer>
+            <Snackbar
+              open={toast.open}
+              autoHideDuration={toast.timeout}
+              onClose={handleClose}
+            >
+              <Alert
+                variant="filled"
+                onClose={handleClose}
+                severity={toast.type}
+              >
+                <AlertTitle>{toast.title}</AlertTitle>
+                {toast.description}
+              </Alert>
+            </Snackbar>
+            <Container fixed>
+              <Box mt={'75px'} mb={2}>
+                {props.children}
+                <Stack
+                  mb={2}
+                  direction="column"
+                  justifyContent="center"
+                  alignItems="center"
+                >
+                  <ColorModeSwitcher />
+                  <Credits version={props.version} />
+                </Stack>
+              </Box>
+            </Container>
+          </ThemeProvider>
+        </DrawerContext.Provider>
+      </ColorModeContext.Provider>
+    </ToastContext.Provider>
   );
-}
-
-export default Linka;
+};
